@@ -151,14 +151,32 @@ def extract_artist(title):
         return title.split("-")[0].strip()
     return title.strip().split(" ")[0]
 
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+COOKIE_PATH = os.path.join(BASE_DIR, "cookies.txt")
+
 default_search = {
     "format": "bestaudio/best",
     "quiet": True,
     "noplaylist": True,
     "ignoreerrors": True,
+
     "default_search": "scsearch",
     "extract_flat": False,
+
+    # ✅ js runtime الصحيح
+    "js_runtimes": {
+        "node": {}
+    },
+
+    "cookiefile": COOKIE_PATH,
+    "extractor_args": {
+        "youtube": {
+            "skip": ["dash", "hls"]
+        }
+    }
 }
+
+
 
 
 
@@ -511,15 +529,17 @@ async def play_music(guild, msg=None):
 
 
 
-    if not vc:
+    if not vc or not vc.is_connected():
         if not msg or not msg.author.voice:
             return
 
         try:
-            vc = await msg.author.voice.channel.connect(timeout=10)
+            vc = await msg.author.voice.channel.connect(timeout=10, reconnect=True)
+            await asyncio.sleep(1)  # ⬅️ مهم
         except asyncio.TimeoutError:
             print("❌ Voice connection timeout")
             return
+
 
 
     # ✅ نبحث بـ SoundCloud بدل YouTube
@@ -610,6 +630,15 @@ async def play_music(guild, msg=None):
 
 
         await play_music(guild, msg)
+
+    # ✅ تأكد أن الاتصال الصوتي جاهز
+    if not vc or not vc.is_connected():
+        await asyncio.sleep(1)
+        vc = guild.voice_client
+
+        if not vc or not vc.is_connected():
+            print("❌ Voice not ready, retrying...")
+            return await play_music(guild, msg)
 
     vc.play(src, after=lambda e: asyncio.run_coroutine_threadsafe(after_play(e), bot.loop))
 
