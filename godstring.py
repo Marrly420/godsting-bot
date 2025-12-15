@@ -151,19 +151,19 @@ def extract_artist(title):
         return title.split("-")[0].strip()
     return title.strip().split(" ")[0]
 
-YTDL_OPTS = {
+default_search = {
     "format": "bestaudio/best",
     "quiet": True,
     "noplaylist": True,
     "ignoreerrors": True,
-    "default_search": "ytsearch",
+    "default_search": "scsearch",
     "extract_flat": False,
 }
 
 
 
 
-ytdl = YoutubeDL(YTDL_OPTS)
+ytdl = YoutubeDL(default_search)
 
 FFMPEG_OPTIONS = {
     "before_options": "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5",
@@ -522,7 +522,11 @@ async def play_music(guild, msg=None):
             return
 
 
-    yt_query = f"ytsearch5:{query}" if not query.startswith("http") else query
+    # ✅ نبحث بـ SoundCloud بدل YouTube
+    # إذا المستخدم لاصق رابط (سبوتيفاي مثلاً) نخليه "اسم" وليس الرابط
+    sc_query = f"scsearch5:{query}" if not query.startswith("http") else f"scsearch5:{query}"
+    yt_query = sc_query
+
     loop = asyncio.get_running_loop()
     try:
         info = await loop.run_in_executor(
@@ -562,6 +566,10 @@ async def play_music(guild, msg=None):
         if not e:
             continue
 
+        webpage = e.get("webpage_url", "")
+        if "youtube.com" in webpage or "youtu.be" in webpage:
+            continue
+
         vid = e.get("id")
         if not vid:
             continue
@@ -572,6 +580,7 @@ async def play_music(guild, msg=None):
         info = e
         played_video_ids[gid].add(vid)
         break
+
 
 
     if not info:
@@ -781,6 +790,16 @@ async def on_message(msg):
         return
 
     raw = msg.content.strip()
+
+    # ❌ منع روابط يوتيوب حتى لا يصير حظر
+    lower = raw.lower()
+    if "youtube.com" in lower or "youtu.be" in lower:
+        await safe_delete(msg)
+        ch = msg.channel
+        await ch.send("❌ تشغيل روابط YouTube متوقف حالياً. استخدم Spotify أو اكتب اسم أغنية.", delete_after=6)
+        await bot.process_commands(msg)
+        return
+   
 
     
     # 🚨 إذا الرسالة أمر، لا نتدخل

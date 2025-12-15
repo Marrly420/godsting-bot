@@ -1,4 +1,4 @@
 discord.py
-yt-dlp
-spotipy
 PyNaCl
+spotipy
+yt-dlp
