@@ -159,22 +159,13 @@ default_search = {
     "quiet": True,
     "noplaylist": True,
     "ignoreerrors": True,
+    "default_search": "ytsearch",
 
-    "default_search": "scsearch",
-    "extract_flat": False,
 
-    # ✅ js runtime الصحيح
-    "js_runtimes": {
-        "node": {}
-    },
-
+    # cookies اختياري (خليه إذا تحتاجه)
     "cookiefile": COOKIE_PATH,
-    "extractor_args": {
-        "youtube": {
-            "skip": ["dash", "hls"]
-        }
-    }
 }
+
 
 
 
@@ -185,8 +176,9 @@ ytdl = YoutubeDL(default_search)
 
 FFMPEG_OPTIONS = {
     "before_options": "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5",
-    "options": "-vn"
+    "options": "-vn -loglevel panic"
 }
+
 
 
 import random
@@ -544,8 +536,8 @@ async def play_music(guild, msg=None):
 
     # ✅ نبحث بـ SoundCloud بدل YouTube
     # إذا المستخدم لاصق رابط (سبوتيفاي مثلاً) نخليه "اسم" وليس الرابط
-    sc_query = f"scsearch5:{query}" if not query.startswith("http") else f"scsearch5:{query}"
-    yt_query = sc_query
+    yt_query = f"ytsearch5:{query}" if not query.startswith("http") else query
+
 
     loop = asyncio.get_running_loop()
     try:
@@ -586,9 +578,10 @@ async def play_music(guild, msg=None):
         if not e:
             continue
 
-        webpage = e.get("webpage_url", "")
-        if "youtube.com" in webpage or "youtu.be" in webpage:
+        webpage = e.get("webpage_url", "") or ""
+        if not ("youtube.com" in webpage or "youtu.be" in webpage):
             continue
+
 
         vid = e.get("id")
         if not vid:
@@ -620,7 +613,8 @@ async def play_music(guild, msg=None):
     song_start_time[gid] = time.time()
     song_duration[gid] = dur
 
-    src = await discord.FFmpegOpusAudio.from_probe(url, **FFMPEG_OPTIONS)
+    src = discord.FFmpegOpusAudio(url, **FFMPEG_OPTIONS)
+
 
     async def after_play(_):
         await clear_skip_requests(guild)
@@ -822,12 +816,27 @@ async def on_message(msg):
 
     # ❌ منع روابط يوتيوب حتى لا يصير حظر
     lower = raw.lower()
+
+    # ❌ منع روابط يوتيوب
     if "youtube.com" in lower or "youtu.be" in lower:
         await safe_delete(msg)
-        ch = msg.channel
-        await ch.send("❌ تشغيل روابط YouTube متوقف حالياً. استخدم Spotify أو اكتب اسم أغنية.", delete_after=6)
+        await msg.channel.send(
+            "❌ تشغيل روابط YouTube متوقف حالياً. استخدم Spotify أو اكتب اسم أغنية.",
+            delete_after=6
+        )
         await bot.process_commands(msg)
         return
+
+    # ❌ منع روابط SoundCloud
+    if "soundcloud.com" in lower or "sndcdn.com" in lower:
+        await safe_delete(msg)
+        await msg.channel.send(
+            "❌ روابط SoundCloud غير مدعومة حالياً. اكتب اسم الأغنية فقط 🎵",
+            delete_after=6
+        )
+        await bot.process_commands(msg)
+        return
+
    
 
     
@@ -894,6 +903,8 @@ async def on_message(msg):
 
     await bot.process_commands(msg)
     return
+
+
 
 
 
