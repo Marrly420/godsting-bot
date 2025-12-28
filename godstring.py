@@ -1,3 +1,6 @@
+print("=== BOT VERSION 999 ===")
+
+
 import functools
 import discord
 from discord.ext import commands
