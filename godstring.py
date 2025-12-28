@@ -473,13 +473,7 @@ async def play_music(guild, msg=None):
     if not first_run_cleanup.get(gid):
         first_run_cleanup[gid] = True
 
-        ch = guild.get_channel(guild_music_settings[gid])
-        async for m in ch.history(limit=200):
-            if m.author.bot:
-                try:
-                    await m.delete()
-                except:
-                    pass
+
 
         guild_nowplaying_msg[gid] = None
         guild_queue_msg[gid] = None
@@ -654,13 +648,7 @@ async def hard_stop(guild):
     if vc:
         await vc.disconnect(force=True)
 
-    # 2️⃣ حذف كل رسائل البوت من القناة
-    ch = guild.get_channel(guild_music_settings[gid])
-    async for m in ch.history(limit=200):
-        try:
-            await m.delete()
-        except:
-            pass
+
 
     # 3️⃣ تصفير كل الحالات
     guild_queues[gid] = []
@@ -689,14 +677,7 @@ async def soft_refresh(guild):
     if vc and (vc.is_playing() or vc.is_paused()):
         vc.stop()  # ⬅️ هذا السطر المهم
 
-    ch = guild.get_channel(guild_music_settings[gid])
-    if ch:
-        async for m in ch.history(limit=200):
-            if m.author.bot:
-                try:
-                    await m.delete()
-                except:
-                    pass
+
 
     guild_nowplaying_msg[gid] = None
     guild_queue_msg[gid] = None
@@ -799,7 +780,6 @@ def feed_smart_seed(gid, query):
 
 
 
-
 @bot.event
 async def on_message(msg):
     if msg.author.bot or not msg.guild:
@@ -807,74 +787,32 @@ async def on_message(msg):
 
     gid = msg.guild.id
 
-    # ❌ تجاهل أي رسالة خارج قناة الموسيقى (حماية مطلقة)
-    if gid in guild_music_settings:
-        if msg.channel.id != int(guild_music_settings[gid]):
-            return
+    # خلي الأوامر تشتغل دائمًا
+    await bot.process_commands(msg)
 
-
-    # ❌ إذا السيرفر ما مسوي setup → تجاهل
+    # إذا السيرفر مو مسوي setup → تجاهل
     if gid not in guild_music_settings:
-        await bot.process_commands(msg)
         return
 
-    # ❌ إذا الرسالة مو من قناة الموسيقى → تجاهل كليًا
-    music_channel_id = int(guild_music_settings.get(gid))
-    if msg.channel.id != music_channel_id:
-        return
+    allowed_channel_id = int(guild_music_settings[gid])
 
+    # إذا مو قناة الموسيقى → تجاهل نهائيًا
+    if msg.channel.id != allowed_channel_id:
+        return
 
     raw = msg.content.strip()
 
-    # ❌ منع روابط يوتيوب حتى لا يصير حظر
-    lower = raw.lower()
-
-    # ❌ منع روابط يوتيوب
-    if "youtube.com" in lower or "youtu.be" in lower:
-        await safe_delete(msg)
-        await msg.channel.send(
-            "❌ تشغيل روابط YouTube متوقف حالياً. استخدم Spotify أو اكتب اسم أغنية.",
-            delete_after=6
-        )
-        await bot.process_commands(msg)
-        return
-
-    # ❌ منع روابط SoundCloud
-    if "soundcloud.com" in lower or "sndcdn.com" in lower:
-        await safe_delete(msg)
-        await msg.channel.send(
-            "❌ روابط SoundCloud غير مدعومة حالياً. اكتب اسم الأغنية فقط 🎵",
-            delete_after=6
-        )
-        await bot.process_commands(msg)
-        return
-
-   
-
-    
-    # 🚨 إذا الرسالة أمر، لا نتدخل
+    # إذا أمر (!) لا نتدخل
     if raw.startswith(bot.command_prefix):
-        await bot.process_commands(msg)
         return
-
-
 
     # ===== Spotify PLAYLIST =====
     playlist_tracks, playlist_artists = spotify_playlist_to_tracks(raw)
     if playlist_tracks:
-        await safe_delete(msg)
-
         smart_play_seed.setdefault(gid, set()).update(playlist_artists)
 
-        first = playlist_tracks[0]
-        guild_queues.setdefault(gid, []).append({
-            "query": first,
-            "owner_id": msg.author.id
-        })
-        feed_smart_seed(gid, first)
-
-        for song in playlist_tracks[1:]:
-            guild_queues[gid].append({
+        for i, song in enumerate(playlist_tracks):
+            guild_queues.setdefault(gid, []).append({
                 "query": song,
                 "owner_id": msg.author.id
             })
@@ -884,14 +822,12 @@ async def on_message(msg):
             await play_music(msg.guild, msg)
         else:
             await update_queue_display(msg.guild)
-
         return
 
     # ===== Spotify TRACK =====
     spotify_title = spotify_to_title(raw)
 
     if "open.spotify.com/track" in raw and not spotify_title:
-        await safe_delete(msg)
         await msg.channel.send(
             "⚠️ Spotify is slow right now, try again 💚",
             delete_after=5
@@ -906,15 +842,11 @@ async def on_message(msg):
     })
     feed_smart_seed(gid, query)
 
-    await safe_delete(msg)
-
     if not guild_current.get(gid):
         await play_music(msg.guild, msg)
     else:
         await update_queue_display(msg.guild)
 
-    await bot.process_commands(msg)
-    return
 
 
 
