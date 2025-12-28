@@ -807,13 +807,19 @@ async def on_message(msg):
 
     gid = msg.guild.id
 
+    # ❌ تجاهل أي رسالة خارج قناة الموسيقى (حماية مطلقة)
+    if gid in guild_music_settings:
+        if msg.channel.id != int(guild_music_settings[gid]):
+            return
+
+
     # ❌ إذا السيرفر ما مسوي setup → تجاهل
     if gid not in guild_music_settings:
         await bot.process_commands(msg)
         return
 
     # ❌ إذا الرسالة مو من قناة الموسيقى → تجاهل كليًا
-    music_channel_id = guild_music_settings.get(gid)
+    music_channel_id = int(guild_music_settings.get(gid))
     if msg.channel.id != music_channel_id:
         return
 
