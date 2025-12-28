@@ -1,4 +1,4 @@
-print("=== BOT VERSION 999 ===")
+print("=== BOT VERSION 888 ===")
 
 
 import functools
