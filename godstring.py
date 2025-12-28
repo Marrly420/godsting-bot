@@ -807,10 +807,16 @@ async def on_message(msg):
 
     gid = msg.guild.id
 
-    # ✅ هذا التعديل المهم
+    # ❌ إذا السيرفر ما مسوي setup → تجاهل
     if gid not in guild_music_settings:
         await bot.process_commands(msg)
         return
+
+    # ❌ إذا الرسالة مو من قناة الموسيقى → تجاهل كليًا
+    music_channel_id = guild_music_settings.get(gid)
+    if msg.channel.id != music_channel_id:
+        return
+
 
     raw = msg.content.strip()
 
