@@ -227,7 +227,7 @@ async def update_queue_display(guild):
 
     embed = discord.Embed(title="🎶✨ **QUEUE** ✦", description=boxed, color=PURPLE)
 
-    channel = guild.get_channel(guild_music_settings[gid])
+    channel = guild.get_channel(int(guild_music_settings[gid]))
 
     old = guild_queue_msg.get(gid)
     if old:
@@ -260,13 +260,18 @@ class MusicControls(discord.ui.View):
         super().__init__(timeout=None)
         self.gid = gid
 
-        # 🔄 Sync Smart Play button style
+        # 🔄 Sync button styles when the view is recreated
         for item in self.children:
-            if isinstance(item, discord.ui.Button) and item.label == "Smart Play":
-                if smart_play_enabled.get(gid):
-                    item.style = discord.ButtonStyle.success
+            if isinstance(item, discord.ui.Button):
+                if item.label == "Smart Play":
+                    item.style = discord.ButtonStyle.success if smart_play_enabled.get(gid) else discord.ButtonStyle.secondary
 
-    
+                if item.label == "Loop":
+                    item.style = discord.ButtonStyle.success if loop_enabled.get(gid) else discord.ButtonStyle.secondary
+
+                # (اختياري) إذا تحب زر Pause ينعكس حسب الحالة الحالية
+                # ما راح أغيّره لأنك ما طلبته
+
     @discord.ui.button(label="Smart Play", style=discord.ButtonStyle.secondary, row=1)
     async def smart_play(self, inter, btn):
         gid = inter.guild.id
@@ -276,13 +281,11 @@ class MusicControls(discord.ui.View):
             btn.style = discord.ButtonStyle.success
             smart_play_seed[gid] = set()
 
-            # ⬅️ خذ الأغنية الحالية + باقي الكويي فقط
             if guild_current.get(gid):
                 feed_smart_seed(gid, guild_current[gid]["query"])
 
             for item in guild_queues.get(gid, []):
                 feed_smart_seed(gid, item["query"])
-
         else:
             btn.style = discord.ButtonStyle.secondary
             smart_play_seed[gid] = set()
@@ -290,24 +293,16 @@ class MusicControls(discord.ui.View):
         await inter.message.edit(view=self)
         await inter.response.defer()
 
-
-
-
-
-    # زر واحد يتحكم بالحالتين
     @discord.ui.button(label="Pause", style=discord.ButtonStyle.secondary, row=0)
     async def pause_resume(self, inter, btn):
         vc = inter.guild.voice_client
         if not vc:
             return await inter.response.defer()
 
-        # إذا الأغنية تلعب → Pause
         if vc.is_playing():
             vc.pause()
             btn.label = "Resume"
             btn.style = discord.ButtonStyle.success
-
-        # إذا الأغنية متوقفة → Resume
         elif vc.is_paused():
             vc.resume()
             btn.label = "Pause"
@@ -318,47 +313,30 @@ class MusicControls(discord.ui.View):
 
     @discord.ui.button(label="Skip", style=discord.ButtonStyle.primary, row=0)
     async def skip(self, inter, btn):
-
         gid = inter.guild.id
 
-        # CASE 1 – skip request pending
         if skip_pending.get(gid):
-
             owner = skip_pending[gid]["song_owner_id"]
-
             if inter.user.id == owner:
                 await inter.response.defer()
                 await clear_skip_requests(inter.guild)
                 await finalize_skip(inter.guild)
-
                 btn.label = "Skip"
                 btn.style = discord.ButtonStyle.primary
                 await inter.message.edit(view=self)
                 return
 
-
-        # CASE 2 – no pending request
         if not guild_current.get(gid):
             return await inter.response.defer()
 
         owner = guild_current[gid]["owner_id"]
         requester = inter.user.id
 
-        # ✅ Smart Play song → skip مباشرة
-        if owner == bot.user.id:
+        if owner == bot.user.id or requester == owner:
             await inter.response.defer()
             await clear_skip_requests(inter.guild)
             await finalize_skip(inter.guild)
             return
-
-
-
-        if requester == owner:
-            await inter.response.defer()
-            await clear_skip_requests(inter.guild)
-            await finalize_skip(inter.guild)
-            return
-
 
         skip_pending[gid] = {"song_owner_id": owner, "requester_id": requester}
 
@@ -369,14 +347,12 @@ class MusicControls(discord.ui.View):
         btn.style = discord.ButtonStyle.danger
         await inter.message.edit(view=self)
 
-        # message
-        channel = inter.guild.get_channel(guild_music_settings[gid])
+        channel = inter.guild.get_channel(int(guild_music_settings[gid]))
         embed = discord.Embed(
             description=f"💜 Skip request from {inter.user.mention}\nWaiting for {owner_member.mention} to approve ✨",
             color=PURPLE
         )
         m = await channel.send(embed=embed)
-
         skip_request_msg.setdefault(gid, []).append(m)
 
         await inter.response.defer()
@@ -385,21 +361,28 @@ class MusicControls(discord.ui.View):
     async def loop(self, inter, btn):
         gid = inter.guild.id
         loop_enabled[gid] = not loop_enabled.get(gid, False)
+
+        # ✅ لون الزر
         btn.style = discord.ButtonStyle.success if loop_enabled[gid] else discord.ButtonStyle.secondary
+
         await inter.message.edit(view=self)
         await inter.response.defer()
 
     @discord.ui.button(label="Stop", style=discord.ButtonStyle.danger, row=0)
     async def stop(self, inter, btn):
-        await clear_skip_requests(inter.guild)
-        await hard_stop(inter.guild)
         await inter.response.defer()
+
+        await clear_skip_requests(inter.guild)
+        await stop_reset_keep_connected(inter.guild)
+
+        # ✅ تحديث الواجهة حتى ترجع الأزرار (Loop / Smart) للوضع الطبيعي
+        await inter.message.edit(view=MusicControls(inter.guild.id))
+
 
     @discord.ui.button(label="Refresh", style=discord.ButtonStyle.primary, row=0)
     async def refresh(self, inter, btn):
-        await clear_skip_requests(inter.guild)
-        await soft_refresh(inter.guild)
         await inter.response.defer()
+        await refresh_reconnect_and_resume(inter.guild, inter)  # ✅ الجديد
 
 
 # ==================================================
@@ -443,7 +426,7 @@ async def update_nowplaying(guild, title, thumbnail):
 
     embed.set_footer(text="Created By ｍａｒｒｌｙ４")
 
-    channel = guild.get_channel(guild_music_settings[gid])
+    channel = guild.get_channel(int(guild_music_settings[gid]))
 
     view = MusicControls(gid)
 
@@ -617,13 +600,16 @@ async def play_music(guild, msg=None):
 
 
     async def after_play(_):
-        await clear_skip_requests(guild)
+        try:
+            await clear_skip_requests(guild)
 
-        if loop_enabled.get(gid) and owner != bot.user.id:
-            guild_queues[gid].insert(0, {"query": query, "owner_id": owner})
+            if loop_enabled.get(gid):
+                guild_queues.setdefault(gid, []).insert(0, {"query": query, "owner_id": owner})
 
+            await play_music(guild, msg)
+        except Exception as e:
+            print("after_play error:", e)
 
-        await play_music(guild, msg)
 
     # ✅ تأكد أن الاتصال الصوتي جاهز
     if not vc or not vc.is_connected():
@@ -634,10 +620,15 @@ async def play_music(guild, msg=None):
             print("❌ Voice not ready, retrying...")
             return await play_music(guild, msg)
 
+    # ✅ شغّل مرة وحدة فقط
     vc.play(src, after=lambda e: asyncio.run_coroutine_threadsafe(after_play(e), bot.loop))
 
+    # ✅ حدّث الواجهة
     await update_nowplaying(guild, title, thumb)
     await update_queue_display(guild)
+
+
+
 
 
 # ==================================================
@@ -797,6 +788,101 @@ def feed_smart_seed(gid, query):
     smart_play_seed.setdefault(gid, set()).add(artist)
 
 
+async def stop_reset_keep_connected(guild):
+    """
+    يوقف كلشي + يصفّر الحالات + يمسح الكويي والسمارت
+    بس يبقي البوت متصل بالفويس.
+    """
+    gid = guild.id
+
+    # وقف الصوت
+    vc = guild.voice_client
+    if vc and (vc.is_playing() or vc.is_paused()):
+        vc.stop()
+
+    # صفّر كل الحالات
+    guild_queues[gid] = []
+    guild_current[gid] = None
+    skip_pending[gid] = None
+    loop_enabled[gid] = False
+
+    smart_play_enabled[gid] = False
+    smart_play_seed[gid] = set()
+    played_video_ids[gid] = set()
+    smart_fail_count.pop(gid, None)
+
+    # امسح رسائل skip إن وجدت
+    await clear_skip_requests(guild)
+
+    # (اختياري) امسح رسائل البوت UI من قناة السيتاب فقط
+    ch_id = guild_music_settings.get(gid)
+    if ch_id:
+        ch = guild.get_channel(int(ch_id))
+        if ch:
+            # امسح رسائل nowplaying/queue المسجلة إذا موجودة
+            try:
+                if guild_nowplaying_msg.get(gid):
+                    await guild_nowplaying_msg[gid].delete()
+            except:
+                pass
+
+            try:
+                if guild_queue_msg.get(gid):
+                    await guild_queue_msg[gid].delete()
+            except:
+                pass
+
+    guild_nowplaying_msg[gid] = None
+    guild_queue_msg[gid] = None
+
+    # مهم: ما نغيّر first_run_cleanup لأنك تريد يبقى طبيعي
+    # first_run_cleanup[gid] = False  # لا
+
+
+async def refresh_reconnect_and_resume(guild, inter):
+    """
+    إصلاح أعطال:
+    يطلع من الفويس ويرجع يدخل لنفس الفويس،
+    وبعدين يعيد تشغيل نفس الأغنية الحالية (من البداية)
+    ويكمل الكويي.
+    """
+    gid = guild.id
+
+    vc = guild.voice_client
+    if not vc or not vc.channel:
+        # إذا مو متصل أصلاً، ما نكدر "نرجّع"
+        return
+
+    voice_channel = vc.channel
+
+    # خزن الأغنية الحالية حتى نرجعها
+    current = guild_current.get(gid)
+    if current:
+        # رجعها أول شي بالكويي حتى play_music يعيد تشغيلها
+        guild_queues.setdefault(gid, []).insert(0, {
+            "query": current["query"],
+            "owner_id": current["owner_id"]
+        })
+
+    # اطلع وارجع ادخل
+    try:
+        if vc.is_playing() or vc.is_paused():
+            vc.stop()
+        await vc.disconnect(force=True)
+    except:
+        pass
+
+    await asyncio.sleep(1)
+
+    try:
+        await voice_channel.connect(timeout=10, reconnect=True)
+        await asyncio.sleep(1)
+    except Exception as e:
+        print("❌ Refresh reconnect failed:", e)
+        return
+
+    # إذا بعده ماكو current بس الكويي بيها أغاني، شغّل عادي
+    await play_music(guild, msg=None)
 
 
 
