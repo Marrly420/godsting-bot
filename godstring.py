@@ -160,11 +160,12 @@ default_search = {
     "noplaylist": True,
     "ignoreerrors": True,
     "default_search": "ytsearch",
-
-
-    # cookies اختياري (خليه إذا تحتاجه)
-    "cookiefile": COOKIE_PATH,
 }
+
+# فقط إذا الملف موجود فعلاً
+if os.path.exists(COOKIE_PATH):
+    default_search["cookiefile"] = COOKIE_PATH
+
 
 
 
